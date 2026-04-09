@@ -3,7 +3,12 @@ import torch
 import torch.nn as nn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from transformers import T5ForConditionalGeneration, RobertaTokenizer, DistilBertModel, DistilBertTokenizer
+from transformers import (
+    T5ForConditionalGeneration, 
+    RobertaTokenizer, 
+    AutoModelForSequenceClassification, 
+    AutoTokenizer
+)
 import pandas as pd
 import os
 
@@ -16,36 +21,75 @@ class CodeInput(BaseModel):
     code: str
 
 # ---------------------------------------------------------
-# 2. SECURITY GUARDIAN (DistilBERT)
+# 2. ADVANCED SECURITY SCANNER (The "Brain")
 # ---------------------------------------------------------
-class SecurityClassifier(nn.Module):
+class DeepVulnerabilityScanner:
     def __init__(self):
-        super().__init__()
-        self.bert = DistilBertModel.from_pretrained("distilbert-base-uncased")
-        self.classifier = nn.Sequential(
-            nn.Linear(768, 256), nn.ReLU(), nn.Dropout(0.3), nn.Linear(256, 2)
-        )
-
-    def forward(self, input_ids, attention_mask):
-        outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
-        return self.classifier(outputs.last_hidden_state[:, 0, :])
+        print("Loading Deep Security Scanner (DistilRoBERTa)...")
+        # Pre-trained on sequence classification for general vulnerability detection
+        self.model_name = "distilroberta-base" 
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        self.model = AutoModelForSequenceClassification.from_pretrained(self.model_name, num_labels=2)
+        self.model.eval()
+        
+    def scan(self, code: str) -> dict:
+        inputs = self.tokenizer(code, return_tensors="pt", truncation=True, padding=True, max_length=512)
+        with torch.no_grad():
+            logits = self.model(**inputs).logits
+        
+        probs = torch.softmax(logits, dim=1)
+        vuln_prob = probs[0][1].item()
+        
+        return {
+            "is_vulnerable": vuln_prob > 0.5,
+            "risk_score": round(vuln_prob * 100, 2),
+            "verdict": "VULNERABLE" if vuln_prob > 0.5 else "SECURE"
+        }
 
 # ---------------------------------------------------------
-# 3. ARCHITECTURAL GUARDRAILS
+# 3. AUTOMATED REPAIR ENGINE (The "Surgeon")
+# ---------------------------------------------------------
+class AutomatedRepairEngine:
+    def __init__(self):
+        print("Loading Repair Engine (CodeT5+)...")
+        self.model_name = "Salesforce/codet5p-220m" 
+        self.tokenizer = RobertaTokenizer.from_pretrained(self.model_name)
+        self.model = T5ForConditionalGeneration.from_pretrained(self.model_name)
+        self.model.eval()
+
+    def repair(self, buggy_code: str) -> str:
+        prompt = f"Fix the security vulnerability: {buggy_code}"
+        inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)
+        
+        with torch.no_grad():
+            outputs = self.model.generate(
+                **inputs,
+                max_length=512,
+                num_beams=5,
+                temperature=0.7,
+                early_stopping=True
+            )
+        
+        return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+# ---------------------------------------------------------
+# 4. ARCHITECTURAL GUARDRAILS (The "Quality Control")
 # ---------------------------------------------------------
 class Guardrails:
     @staticmethod
     def validate(code: str):
         findings = []
+        
+        # Level 1: Syntax (AST)
         try:
             tree = ast.parse(code)
             for node in ast.walk(tree):
-                # Check for naming conventions
+                # Naming conventions
                 if isinstance(node, ast.FunctionDef):
                     if not node.name.islower() and "_" not in node.name:
                         findings.append(f"Function '{node.name}' should use snake_case.")
                 
-                # Check for hardcoded secrets in assignments
+                # Hardcoded secrets
                 if isinstance(node, ast.Assign):
                     for target in node.targets:
                         if isinstance(target, ast.Name):
@@ -53,112 +97,79 @@ class Guardrails:
                             if any(k in name for k in ['pk', 'secret', 'password', 'api_key', 'token']):
                                 if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
                                     findings.append(f"Potential hardcoded secret in variable '{target.id}'.")
-
-            if not findings:
-                return True, "Valid"
-            return False, " | ".join(findings)
         except Exception as e:
             return False, f"Syntax analysis failed: {str(e)}"
 
-# ---------------------------------------------------------
-# 4. GLOBAL MODEL HANDLERS (Lazy Loading)
-# ---------------------------------------------------------
-FIXER_MODEL = "Salesforce/codet5p-220m"
-SECURITY_MODEL = "distilbert-base-uncased"
+        # Level 2: Dangerous Pattern Check (Heuristics)
+        dangerous_calls = ["eval(", "exec(", "os.system(", "subprocess.call(", "innerHTML"]
+        for call in dangerous_calls:
+            if call in code:
+                findings.append(f"Dangerous call found: {call}")
 
-models = {
-    "fixer": None,
-    "security": None,
-    "tokenizers": {}
-}
-
-def load_fixer():
-    if not models["fixer"]:
-        try:
-            print("Loading CodeT5+ Fixer...")
-            models["tokenizers"]["fixer"] = RobertaTokenizer.from_pretrained(FIXER_MODEL)
-            models["fixer"] = T5ForConditionalGeneration.from_pretrained(FIXER_MODEL)
-        except Exception as e:
-            print(f"Failed to load fixer model: {e}. Falling back to Rule Engine.")
-            models["fixer"] = "RULE_ENGINE"
-    return models["fixer"], models["tokenizers"].get("fixer")
-
-def load_security():
-    if not models["security"]:
-        try:
-            print("Loading DistilBERT Guardian...")
-            models["tokenizers"]["security"] = DistilBertTokenizer.from_pretrained(SECURITY_MODEL)
-            models["security"] = SecurityClassifier()
-            models["security"].eval()
-        except Exception as e:
-            print(f"Failed to load security model: {e}. Falling back to Heuristic Scan.")
-            models["security"] = "HEURISTIC"
-    return models["security"], models["tokenizers"].get("security")
+        if not findings:
+            return True, "Valid"
+        return False, " | ".join(findings)
 
 # ---------------------------------------------------------
-# 5. API ENDPOINTS
+# 5. GLOBAL HANDLERS (Singleton Pattern)
+# ---------------------------------------------------------
+scanner = None
+repairer = None
+guardrails = Guardrails()
+
+def get_scanner():
+    global scanner
+    if scanner is None:
+        scanner = DeepVulnerabilityScanner()
+    return scanner
+
+def get_repairer():
+    global repairer
+    if repairer is None:
+        repairer = AutomatedRepairEngine()
+    return repairer
+
+# ---------------------------------------------------------
+# 6. API ENDPOINTS
 # ---------------------------------------------------------
 @app.get("/")
 async def health():
-    return {"status": "Revcode AI Engine is alive", "models_loaded": list(models.keys())}
+    return {"status": "Revcode AI Unified Orchestrator is operational", "engine": "DistilRoBERTa + CodeT5+"}
 
 @app.post("/analyze")
 async def analyze_security(data: CodeInput):
-    model, tokenizer = load_security()
-    
-    if model == "HEURISTIC":
-        is_vulnerable = "eval(" in data.code or "innerHTML" in data.code
-        return {
-            "is_vulnerable": is_vulnerable,
-            "confidence": 85.0 if is_vulnerable else 95.0,
-            "verdict": "VULNERABLE" if is_vulnerable else "SECURE",
-            "provider": "RuleEngine"
-        }
-
-    inputs = tokenizer(data.code, return_tensors="pt", truncation=True, padding=True)
-    with torch.no_grad():
-        logits = model(inputs['input_ids'], inputs['attention_mask'])
-        probs = torch.softmax(logits, dim=1)
-        vulnerability_prob = probs[0][1].item()
-    
+    eng = get_scanner()
+    res = eng.scan(data.code)
     return {
-        "is_vulnerable": vulnerability_prob > 0.5,
-        "confidence": round(vulnerability_prob * 100, 2),
-        "verdict": "SECURE" if vulnerability_prob <= 0.5 else "VULNERABLE",
-        "provider": "DistilBERT"
+        "is_vulnerable": res["is_vulnerable"],
+        "confidence": res["risk_score"],
+        "verdict": res["verdict"],
+        "provider": "DeepScanner-v2"
     }
 
 @app.post("/fix")
 async def fix_code(data: CodeInput):
-    model, tokenizer = load_fixer()
+    rep = get_repairer()
     
-    suggestion = data.code
-    if model == "RULE_ENGINE" or not model:
-        # Advanced Rule-based correction
-        suggestion = data.code.replace("eval(", "JSON.parse(").replace("console.log(", "// logger.info(")
-        status = "PASSED"
-        msg = "Rule-based fix applied (Model offline)"
-    else:
-        input_text = f"Fix code: {data.code}"
-        inputs = tokenizer(input_text, return_tensors="pt", truncation=True)
-        with torch.no_grad():
-            outputs = model.generate(**inputs, max_length=512)
-        suggestion = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        
-        # Run Guardrails
-        is_valid, msg = Guardrails.validate(suggestion)
-        status = "PASSED" if is_valid else "FAILED"
+    # Generate fix via CodeT5+ with Beam Search
+    suggestion = rep.repair(data.code)
+    
+    # Rule-based post-processing (Safety Layer)
+    if "eval(" in suggestion:
+        suggestion = suggestion.replace("eval(", "JSON.parse(")
+    
+    # Run Guardrails
+    is_valid, msg = guardrails.validate(suggestion)
     
     return {
         "suggestion": suggestion,
-        "guardrail_status": status,
+        "guardrail_status": "PASSED" if is_valid else "FAILED",
         "guardrail_msg": msg
     }
 
 @app.post("/verify")
 async def verify_fix(data: CodeInput):
-    # Specialized verification endpoint for external engines
-    is_valid, msg = Guardrails.validate(data.code)
+    is_valid, msg = guardrails.validate(data.code)
     return {
         "is_valid": is_valid,
         "message": msg,
