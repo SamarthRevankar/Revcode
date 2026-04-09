@@ -597,6 +597,18 @@ app.post('/api/ai/feedback', authMiddleware, async (req, res) => {
   }
 });
 
+app.post('/api/train', authMiddleware, async (req, res) => {
+  const mlServiceUrl = process.env.ML_SERVICE_URL;
+  if (!mlServiceUrl) return res.status(503).json({ error: 'ML Service not configured' });
+
+  try {
+    const response = await axios.post(`${mlServiceUrl}/train`);
+    res.json(response.data);
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to start training: ' + e.message });
+  }
+});
+
 app.get('/api/reviews', authMiddleware, (req, res) => {
   const reviews = db.reviews
     .filter(r => r.userId === req.user.id)

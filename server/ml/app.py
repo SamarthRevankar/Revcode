@@ -1,7 +1,7 @@
 import ast
 import torch
 import torch.nn as nn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional
 from transformers import (
@@ -12,8 +12,16 @@ from transformers import (
 )
 import pandas as pd
 import os
+import threading
 
-app = FastAPI(title="Revcode AI Unified Orchestrator")
+# Import the training function
+from train_engine import train_on_devign
+
+app = FastAPI(title="Revcode AI ULTRA Orchestrator")
+
+# Global training status
+training_lock = threading.Lock()
+is_training = False
 
 # ---------------------------------------------------------
 # 1. DATA MODELS
@@ -23,15 +31,21 @@ class CodeInput(BaseModel):
     filename: Optional[str] = "snippet.js"
 
 # ---------------------------------------------------------
-# 2. ADVANCED SECURITY SCANNER (The "Brain" + XAI)
+# 2. ADVANCED SECURITY SCANNER (CodeBERT-Devign + XAI)
 # ---------------------------------------------------------
 class DeepVulnerabilityScanner:
     def __init__(self):
-        # SOTA model fine-tuned specifically on the Devign code vulnerability dataset
-        self.model_name = "mahdin70/codebert-devign-code-vulnerability-detector" 
-        self.tokenizer_name = "microsoft/codebert-base"
-        
-        print(f"Loading Specialized Security Scanner ({self.model_name})...")
+        # We check if a locally trained model exists, otherwise use the base
+        local_model = "./trained_model"
+        if os.path.exists(local_model):
+            self.model_name = local_model
+            self.tokenizer_name = local_model
+            print(f"Loading Locally Trained Security Scanner ({self.model_name})...")
+        else:
+            self.model_name = "mahdin70/codebert-devign-code-vulnerability-detector" 
+            self.tokenizer_name = "microsoft/codebert-base"
+            print(f"Loading SOTA Security Scanner ({self.model_name})...")
+            
         self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_name)
         self.model = AutoModelForSequenceClassification.from_pretrained(self.model_name)
         self.model.eval()
@@ -44,7 +58,6 @@ class DeepVulnerabilityScanner:
         probs = torch.softmax(logits, dim=1)
         vuln_prob = probs[0][1].item()
         
-        # XAI Layer: Tuned for the specialized model's confidence thresholds
         reasoning = "Analyzing code logic for Devign-pattern vulnerabilities."
         if vuln_prob > 0.9:
             reasoning = "CRITICAL: High-confidence fingerprint of a known vulnerability pattern (e.g., Buffer Overflow, Improper Sanitization)."
@@ -67,31 +80,24 @@ class StructuralScanner:
     @staticmethod
     def scan_patterns(code: str, filename: str) -> list:
         findings = []
-        
-        # Pattern 1: Command Injection
         if "os.system(" in code or "subprocess.Popen(..., shell=True)" in code:
             findings.append({
                 "type": "Security",
                 "title": "Command Injection Risk",
                 "reasoning": "Detected use of shell=True or os.system which can lead to Remote Code Execution."
             })
-        
-        # Pattern 2: Pickle / Deserialization
         if "pickle.load" in code or "yaml.load(..., Loader=None)" in code:
              findings.append({
                 "type": "Security",
                 "title": "Insecure Deserialization",
                 "reasoning": "Insecure loading of serialized data can lead to arbitrary code execution."
             })
-
-        # Pattern 3: Hardcoded Credentials
         if "Password =" in code or "API_KEY =" in code:
             findings.append({
                 "type": "Compliance",
                 "title": "Hardcoded Secret",
                 "reasoning": "Sensitive credentials found in source code. Use environment variables instead."
             })
-
         return findings
 
 # ---------------------------------------------------------
@@ -106,10 +112,8 @@ class AutomatedRepairEngine:
         self.model.eval()
 
     def repair(self, buggy_code: str, filename: str) -> str:
-        # Context Injection: Add filename to the prompt
         prompt = f"Fix the security vulnerability in this {filename} file: {buggy_code}"
         inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)
-        
         with torch.no_grad():
             outputs = self.model.generate(
                 **inputs,
@@ -118,7 +122,6 @@ class AutomatedRepairEngine:
                 temperature=0.7,
                 early_stopping=True
             )
-        
         return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
 
 # ---------------------------------------------------------
@@ -141,9 +144,9 @@ repairer = None
 struct_scanner = StructuralScanner()
 guardrails = Guardrails()
 
-def get_scanner():
+def get_scanner(force_reload=False):
     global scanner
-    if scanner is None:
+    if scanner is None or force_reload:
         scanner = DeepVulnerabilityScanner()
     return scanner
 
@@ -154,23 +157,46 @@ def get_repairer():
     return repairer
 
 # ---------------------------------------------------------
-# 7. API ENDPOINTS
+# 7. TRAINING WRAPPER
+# ---------------------------------------------------------
+def run_training():
+    global is_training
+    with training_lock:
+        is_training = True
+    try:
+        print("--- STARTING BACKGROUND TRAINING CYCLE ---")
+        train_on_devign(output_dir="./trained_model")
+        print("--- TRAINING CYCLE COMPLETED. RELOADING SCANNER ---")
+        get_scanner(force_reload=True)
+    finally:
+        with training_lock:
+            is_training = False
+
+# ---------------------------------------------------------
+# 8. API ENDPOINTS
 # ---------------------------------------------------------
 @app.get("/")
 async def health():
-    return {"status": "Revcode AI ULTRA Orchestrator Operational", "features": ["XAI", "Structural-Scan", "Context-Injection"]}
+    return {
+        "status": "Revcode AI ULTRA Orchestrator Operational", 
+        "is_training": is_training,
+        "features": ["XAI", "Structural-Scan", "Context-Injection", "Auto-Train"]
+    }
+
+@app.post("/train")
+async def trigger_training(background_tasks: BackgroundTasks):
+    global is_training
+    if is_training:
+        return {"status": "error", "message": "Training already in progress."}
+    
+    background_tasks.add_task(run_training)
+    return {"status": "success", "message": "Training started in background."}
 
 @app.post("/analyze")
 async def analyze_security(data: CodeInput):
     eng = get_scanner()
-    
-    # 1. Neural Scan (XAI)
     res = eng.scan(data.code)
-    
-    # 2. Structural Scan (Mini-Semgrep)
     structural_findings = struct_scanner.scan_patterns(data.code, data.filename)
-    
-    # Merge reasoning from both layers
     if structural_findings:
         res["is_vulnerable"] = True
         res["reasoning"] += " | Structural rules flagged: " + ", ".join([f['title'] for f in structural_findings])
@@ -182,20 +208,15 @@ async def analyze_security(data: CodeInput):
         "verdict": res["verdict"],
         "reasoning": res["reasoning"],
         "structural_findings": structural_findings,
+        "is_training": is_training,
         "provider": "DeepScanner-ULTRA"
     }
 
 @app.post("/fix")
 async def fix_code(data: CodeInput):
     rep = get_repairer()
-    
-    # Generate context-aware fix
     suggestion = rep.repair(data.code, data.filename)
-    
-    # Heuristic layer removed to allow the neural surgeon to handle repairs with 100% precision.
-    
     is_valid, msg = guardrails.validate(suggestion)
-    
     return {
         "suggestion": suggestion,
         "guardrail_status": "PASSED" if is_valid else "FAILED",

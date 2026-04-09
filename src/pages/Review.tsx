@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Sparkles, Loader2, FileCode2, Clock, ChevronRight, Wand2, CheckCircle2, AlertTriangle, Save, ShieldCheck, Cpu, Braces } from 'lucide-react';
-import { submitReview, getReviews, submitAutofix, submitFeedback } from '../api';
+import { submitReview, getReviews, submitAutofix, submitFeedback, submitTrain } from '../api';
 
 export default function Review() {
   const [code, setCode] = useState('');
@@ -15,6 +15,7 @@ export default function Review() {
   const [applied, setApplied] = useState(false);
   const [scanningStep, setScanningStep] = useState(0);
   const [showToast, setShowToast] = useState(false);
+  const [training, setTraining] = useState(false);
 
   useEffect(() => {
     getReviews().then(d => setHistory(d.reviews || [])).catch(() => {});
@@ -81,6 +82,18 @@ export default function Review() {
     setCode(finalCode);
     setApplied(true);
     setFixResult(null);
+  };
+
+  const handleTrain = async () => {
+    setTraining(true);
+    try {
+      await submitTrain();
+      setShowToast(true);
+      setTimeout(() => setShowToast(false), 3000);
+    } catch (e: any) {
+      setError(e.message || 'Training failed to start.');
+    }
+    setTraining(false);
   };
 
   const VisualDiff = ({ original, suggested }: { original: string, suggested: string }) => {
@@ -240,6 +253,26 @@ export default function Review() {
                 {result.vulnerabilities?.length > 0 && (
                   <span className="severity-badge severity-high">{result.vulnerabilities.length} vulns</span>
                 )}
+                <button 
+                  onClick={handleTrain}
+                  disabled={training}
+                  style={{ 
+                    background: 'rgba(139, 92, 246, 0.1)', 
+                    color: 'var(--brand-purple)', 
+                    padding: '4px 10px', 
+                    borderRadius: 99, 
+                    fontSize: 11, 
+                    fontWeight: 600,
+                    border: 'none',
+                    cursor: training ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4
+                  }}
+                >
+                  {training ? <Loader2 size={10} className="spinner" /> : <Save size={10} />}
+                  {training ? 'Fine-tuning...' : 'Train Engine'}
+                </button>
               </div>
               <h3 style={{ fontSize: 18, marginBottom: 6 }}>AI Feedback</h3>
               <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.6, marginBottom: 12 }}>{result.feedback}</p>

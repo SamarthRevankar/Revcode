@@ -122,6 +122,10 @@ export async function submitFeedback(original_code: string, corrected_code: stri
   });
 }
 
+export async function submitTrain() {
+  return request('/train', { method: 'POST' });
+}
+
 // Security Scans
 export async function runSecurityScan(repositoryId: string) {
   return request('/cloud/scan', {
