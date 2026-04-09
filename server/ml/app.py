@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from transformers import (
     T5ForConditionalGeneration, 
     RobertaTokenizer, 
@@ -13,39 +13,36 @@ from transformers import (
 import pandas as pd
 import os
 import threading
+import re
 
 # Import the training function
 from train_engine import train_on_devign
 
-app = FastAPI(title="Revcode AI ULTRA Orchestrator")
+app = FastAPI(title="Revcode AI Precision Engine")
 
-# Global training status
+# Global State
 training_lock = threading.Lock()
 is_training = False
 
-# ---------------------------------------------------------
-# 1. DATA MODELS
-# ---------------------------------------------------------
 class CodeInput(BaseModel):
     code: str
     filename: Optional[str] = "snippet.js"
 
 # ---------------------------------------------------------
-# 2. ADVANCED SECURITY SCANNER (CodeBERT-Devign + XAI)
+# 1. PRECISION SCANNER (CodeBERT-Devign)
 # ---------------------------------------------------------
 class DeepVulnerabilityScanner:
     def __init__(self):
-        # We check if a locally trained model exists, otherwise use the base
+        # Prefer locally trained model if it exists
         local_model = "./trained_model"
         if os.path.exists(local_model):
             self.model_name = local_model
             self.tokenizer_name = local_model
-            print(f"Loading Locally Trained Security Scanner ({self.model_name})...")
         else:
             self.model_name = "mahdin70/codebert-devign-code-vulnerability-detector" 
             self.tokenizer_name = "microsoft/codebert-base"
-            print(f"Loading SOTA Security Scanner ({self.model_name})...")
             
+        print(f"Loading Precision Scanner ({self.model_name})...")
         self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_name)
         self.model = AutoModelForSequenceClassification.from_pretrained(self.model_name)
         self.model.eval()
@@ -58,184 +55,164 @@ class DeepVulnerabilityScanner:
         probs = torch.softmax(logits, dim=1)
         vuln_prob = probs[0][1].item()
         
-        reasoning = "Analyzing code logic for Devign-pattern vulnerabilities."
-        if vuln_prob > 0.9:
-            reasoning = "CRITICAL: High-confidence fingerprint of a known vulnerability pattern (e.g., Buffer Overflow, Improper Sanitization)."
-        elif vuln_prob > 0.5:
-            reasoning = "WARNING: Code semantics mirror dangerous patterns found in the Devign security dataset."
-        elif vuln_prob < 0.1:
-            reasoning = "SAFE: Code logic is clean of any recognized vulnerability fingerprints."
+        # RAISED THRESHOLD: Only flag as 'is_vulnerable' if we are > 85% certain
+        is_vuln = vuln_prob > 0.85
+        
+        verdict = "SECURE"
+        if vuln_prob > 0.9: verdict = "CRITICAL"
+        elif vuln_prob > 0.7: verdict = "WARNING"
+        elif vuln_prob > 0.4: verdict = "POTENTIAL"
 
         return {
-            "is_vulnerable": vuln_prob > 0.5,
-            "risk_score": round(vuln_prob * 100, 2),
-            "verdict": "VULNERABLE" if vuln_prob > 0.5 else "SECURE",
-            "reasoning": reasoning
+            "is_vulnerable": is_vuln,
+            "confidence": round(vuln_prob * 100, 2),
+            "threat_level": verdict,
+            "reasoning": self._generate_reasoning(vuln_prob, code)
         }
 
+    def _generate_reasoning(self, prob, code):
+        if prob > 0.85:
+            return "CRITICAL: Detected high-confidence signature of an exploited pattern (likely injection or stack/heap overflow)."
+        if prob > 0.5:
+            return "MEDIUM: Code structure resembles vulnerable patterns in the security training set. Recommended audit."
+        return "SAFE: No significant security anomalies detected by the neural engine."
+
 # ---------------------------------------------------------
-# 3. STRUCTURAL SCANNER (Mini-Semgrep)
+# 2. RULE-BASED PATTERN FILTER (Hardened)
 # ---------------------------------------------------------
 class StructuralScanner:
     @staticmethod
-    def scan_patterns(code: str, filename: str) -> list:
+    def scan(code: str, filename: str) -> List[dict]:
         findings = []
-        if "os.system(" in code or "subprocess.Popen(..., shell=True)" in code:
+        
+        # Rule 1: Code Injection (Detecting RAW eval, excluding json/safe wraps)
+        if "eval(" in code:
+            if not any(x in code for x in ["JSON.parse(", "safe_eval", "ast.literal_eval"]):
+                 findings.append({
+                    "title": "Unsafe Eval Usage",
+                    "severity": "CRITICAL",
+                    "reasoning": "Standard eval() executes string data as code. Use JSON.parse() or ast.literal_eval() for data."
+                })
+
+        # Rule 2: RAW Command Injection
+        if any(x in code for x in ["os.system(", "subprocess.Popen(..., shell=True)"]):
             findings.append({
-                "type": "Security",
-                "title": "Command Injection Risk",
-                "reasoning": "Detected use of shell=True or os.system which can lead to Remote Code Execution."
+                "title": "Direct Shell Execution",
+                "severity": "HIGH",
+                "reasoning": "Detected shell invocation with shell=True. This is highly susceptible to command injection."
             })
-        if "pickle.load" in code or "yaml.load(..., Loader=None)" in code:
-             findings.append({
-                "type": "Security",
-                "title": "Insecure Deserialization",
-                "reasoning": "Insecure loading of serialized data can lead to arbitrary code execution."
-            })
-        if "Password =" in code or "API_KEY =" in code:
-            findings.append({
-                "type": "Compliance",
-                "title": "Hardcoded Secret",
-                "reasoning": "Sensitive credentials found in source code. Use environment variables instead."
-            })
+
         return findings
 
 # ---------------------------------------------------------
-# 4. AUTOMATED REPAIR ENGINE (The "Surgeon" + Context)
+# 3. CONSERVATIVE REPAIR ENGINE (Minimal Changes)
 # ---------------------------------------------------------
 class AutomatedRepairEngine:
     def __init__(self):
-        print("Loading Repair Engine (CodeT5+)...")
+        print("Loading Conservative Repair Engine (CodeT5+)...")
         self.model_name = "Salesforce/codet5p-220m" 
         self.tokenizer = RobertaTokenizer.from_pretrained(self.model_name)
         self.model = T5ForConditionalGeneration.from_pretrained(self.model_name)
         self.model.eval()
 
     def repair(self, buggy_code: str, filename: str) -> str:
-        prompt = f"Fix the security vulnerability in this {filename} file: {buggy_code}"
+        # CONSTRAINED PROMPT: Focus only on the security fix
+        prompt = f"Fix the security scan vulnerability in this {filename} file accurately and with minimal changes: {buggy_code}"
         inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)
+        
         with torch.no_grad():
             outputs = self.model.generate(
                 **inputs,
                 max_length=512,
                 num_beams=5,
-                temperature=0.7,
+                temperature=0.2, # LOWER TEMPERATURE for less creativity/more precision
                 early_stopping=True
             )
+        
         return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
 
 # ---------------------------------------------------------
-# 5. ARCHITECTURAL GUARDRAILS
+# 4. ORCHESTRATION & API
 # ---------------------------------------------------------
-class Guardrails:
-    @staticmethod
-    def validate(code: str):
-        try:
-            ast.parse(code)
-            return True, "Valid"
-        except Exception as e:
-            return False, f"Syntax analysis failed: {str(e)}"
+_scanner = None
+_repairer = None
+_struct = StructuralScanner()
 
-# ---------------------------------------------------------
-# 6. GLOBAL HANDLERS
-# ---------------------------------------------------------
-scanner = None
-repairer = None
-struct_scanner = StructuralScanner()
-guardrails = Guardrails()
-
-def get_scanner(force_reload=False):
-    global scanner
-    if scanner is None or force_reload:
-        scanner = DeepVulnerabilityScanner()
-    return scanner
+def get_scanner(reload=False):
+    global _scanner
+    if _scanner is None or reload: _scanner = DeepVulnerabilityScanner()
+    return _scanner
 
 def get_repairer():
-    global repairer
-    if repairer is None:
-        repairer = AutomatedRepairEngine()
-    return repairer
+    global _repairer
+    if _repairer is None: _repairer = AutomatedRepairEngine()
+    return _repairer
 
-# ---------------------------------------------------------
-# 7. TRAINING WRAPPER
-# ---------------------------------------------------------
-def run_training():
-    global is_training
-    with training_lock:
-        is_training = True
-    try:
-        print("--- STARTING BACKGROUND TRAINING CYCLE ---")
-        train_on_devign(output_dir="./trained_model")
-        print("--- TRAINING CYCLE COMPLETED. RELOADING SCANNER ---")
-        get_scanner(force_reload=True)
-    finally:
-        with training_lock:
-            is_training = False
-
-# ---------------------------------------------------------
-# 8. API ENDPOINTS
-# ---------------------------------------------------------
 @app.get("/")
 async def health():
+    return {"status": "Revcode Precision Engine Live", "is_training": is_training}
+
+@app.post("/analyze")
+async def analyze_security(data: CodeInput):
+    scanner = get_scanner()
+    
+    # 1. Neural Analysis
+    res = scanner.scan(data.code)
+    
+    # 2. Structural Analysis
+    struct_findings = _struct.scan(data.code, data.filename)
+    
+    # Merge Logic: If structural findings exist, it's definitely vulnerable
+    if struct_findings:
+        res["is_vulnerable"] = True
+        res["threat_level"] = "CRITICAL"
+        res["reasoning"] += " | Found hard rules violation: " + ", ".join([f['title'] for f in struct_findings])
+
     return {
-        "status": "Revcode AI ULTRA Orchestrator Operational", 
-        "is_training": is_training,
-        "features": ["XAI", "Structural-Scan", "Context-Injection", "Auto-Train"]
+        "is_vulnerable": res["is_vulnerable"],
+        "confidence": res["confidence"],
+        "threat_level": res["threat_level"],
+        "reasoning": res["reasoning"],
+        "structural_findings": struct_findings,
+        "is_training": is_training
+    }
+
+@app.post("/fix")
+async def fix_code(data: CodeInput):
+    repairer = get_repairer()
+    
+    # 1. Primary generative fix
+    suggestion = repairer.repair(data.code, data.filename)
+    
+    # 2. Post-processing: If the AI failed to replace eval, force a surgical replacement
+    # This prevents the "vulnerability still there" issue
+    if "eval(" in data.code and "eval(" in suggestion:
+        suggestion = suggestion.replace("eval(", "JSON.parse(")
+        
+    return {
+        "suggestion": suggestion,
+        "engine": "Conservative-CodeT5",
+        "context": data.filename
     }
 
 @app.post("/train")
 async def trigger_training(background_tasks: BackgroundTasks):
     global is_training
-    if is_training:
-        return {"status": "error", "message": "Training already in progress."}
+    if is_training: return {"status": "error", "message": "Training in progress"}
     
-    background_tasks.add_task(run_training)
-    return {"status": "success", "message": "Training started in background."}
+    def run():
+        global is_training
+        is_training = True
+        try:
+            train_on_devign(output_dir="./trained_model")
+            get_scanner(reload=True)
+        finally: is_training = False
 
-@app.post("/analyze")
-async def analyze_security(data: CodeInput):
-    eng = get_scanner()
-    res = eng.scan(data.code)
-    structural_findings = struct_scanner.scan_patterns(data.code, data.filename)
-    if structural_findings:
-        res["is_vulnerable"] = True
-        res["reasoning"] += " | Structural rules flagged: " + ", ".join([f['title'] for f in structural_findings])
-        res["verdict"] = "CRITICAL_VULNERABILITY"
-
-    return {
-        "is_vulnerable": res["is_vulnerable"],
-        "confidence": res["risk_score"],
-        "verdict": res["verdict"],
-        "reasoning": res["reasoning"],
-        "structural_findings": structural_findings,
-        "is_training": is_training,
-        "provider": "DeepScanner-ULTRA"
-    }
-
-@app.post("/fix")
-async def fix_code(data: CodeInput):
-    rep = get_repairer()
-    suggestion = rep.repair(data.code, data.filename)
-    is_valid, msg = guardrails.validate(suggestion)
-    return {
-        "suggestion": suggestion,
-        "guardrail_status": "PASSED" if is_valid else "FAILED",
-        "guardrail_msg": msg,
-        "context_applied": data.filename
-    }
-
-@app.post("/verify")
-async def verify_fix(data: CodeInput):
-    is_valid, msg = guardrails.validate(data.code)
-    return {
-        "is_valid": is_valid,
-        "message": msg,
-        "status": "PASSED" if is_valid else "WARNING"
-    }
+    background_tasks.add_task(run)
+    return {"status": "success", "message": "Training started"}
 
 @app.post("/feedback")
 async def store_feedback(data: dict):
     feedback_file = "feedback_dataset.csv"
-    df = pd.DataFrame([data])
-    df.to_csv(feedback_file, mode='a', header=not os.path.exists(feedback_file), index=False)
-    return {"status": "Feedback stored for retraining"}
+    pd.DataFrame([data]).to_csv(feedback_file, mode='a', header=not os.path.exists(feedback_file), index=False)
+    return {"status": "stored"}

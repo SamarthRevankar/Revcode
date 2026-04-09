@@ -436,13 +436,15 @@ ${code}
     try {
       const secRes = await axios.post(`${mlServiceUrl}/analyze`, { code, filename });
       if (secRes.data && result) {
-        // Enrich Gemini results with specialized security model findings
         result.securityScan = secRes.data;
-        if (secRes.data.is_vulnerable) {
-          result.securityRisk = 'high';
-          if (!result.vulnerabilities.includes('Specialized Security Model Flag')) {
-            result.vulnerabilities.push(`Heuristic Security Alert: ${secRes.data.verdict} (${secRes.data.confidence}%)`);
+        // Only drop score significantly if threat is MEDIUM or HIGH
+        if (secRes.data.is_vulnerable || ["CRITICAL", "WARNING"].includes(secRes.data.threat_level)) {
+          result.securityRisk = secRes.data.threat_level === "CRITICAL" ? "critical" : "high";
+          if (!result.vulnerabilities.includes('ML-Scanner Found Security Pattern')) {
+            result.vulnerabilities.push(`Heuristic Security Alert: ${secRes.data.threat_level} (${secRes.data.confidence}%) - ${secRes.data.reasoning}`);
           }
+          // Dynamic Health Score Deduction
+          result.score = Math.max(0, result.score - (secRes.data.threat_level === "CRITICAL" ? 40 : 20));
         }
       }
     } catch (e) {
@@ -490,11 +492,14 @@ app.post('/api/autofix', authMiddleware, async (req, res) => {
       const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
       // Step 1: Generate Fix
-      const fixPrompt = `You are a Senior Security Engineer and Code Architect. 
-Your task is to FIX the following code. Focus on:
+      const fixPrompt = `You are a Senior Security Engineer. 
+Your task is to FIX the following code with MINIMAL CHANGES. 
+Focus only on:
 1. Eliminating security vulnerabilities (Injection, hardcoded secrets, etc.)
-2. Improving code quality and modernizing patterns.
-3. Ensuring the fix is robust and doesn't break existing logic.
+2. Keeping the original code structure, variable names, and logic 100% intact.
+3. Surgical remediation: If a single line is vulnerable, only change that line.
+
+DO NOT refactor, DO NOT modernize, and DO NOT add comments.
 
 Code to fix (${filename || 'source'}):
 \`\`\`
