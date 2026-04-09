@@ -554,7 +554,7 @@ Return ONLY the requested format.`;
   if (mlServiceUrl) {
     try {
       const response = await axios.post(`${mlServiceUrl}/fix`, { code, filename });
-      return res.json({ ...response.data, engine: "CodeT5+ (Standard)" });
+      return res.json({ ...response.data, engine: "CodeBERT-Devign / CodeT5+" });
     } catch (e) {
       console.warn('ML Service Autofix failed:', e.message);
     }

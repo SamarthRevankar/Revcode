@@ -207,7 +207,7 @@ export default function Review() {
           <div className="orchestration-step-list">
              <div className={`orchestration-step ${scanningStep === 1 ? 'active' : scanningStep > 1 ? 'completed' : ''}`}>
                 <ShieldCheck size={18} />
-                <span style={{ flex: 1 }}>Layer 1: DistilBERT Security Classifier</span>
+                <span style={{ flex: 1 }}>Layer 1: CodeBERT-Devign Security Scanner</span>
                 {scanningStep > 1 && <CheckCircle2 size={16} />}
              </div>
              <div className={`orchestration-step ${scanningStep === 2 ? 'active' : scanningStep > 2 ? 'completed' : ''}`}>
