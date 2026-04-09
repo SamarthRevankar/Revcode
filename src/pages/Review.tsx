@@ -246,15 +246,26 @@ export default function Review() {
             </div>
             <div style={{ display: 'flex', alignItems: 'center' }}>
                {!applied ? (
-                 <button 
-                  className="btn btn-primary" 
-                  onClick={handleAutofix} 
-                  disabled={fixLoading}
-                  style={{ background: 'var(--brand-gradient)', border: 'none' }}
-                >
-                   {fixLoading ? <Loader2 size={16} className="spinner" /> : <Wand2 size={16} />}
-                   {fixLoading ? 'Generating Fix...' : 'Autofix with CodeT5+'}
-                 </button>
+                  <button 
+                   className="btn btn-primary" 
+                   onClick={handleAutofix} 
+                   disabled={fixLoading}
+                   style={{ 
+                     background: 'var(--brand-gradient)', 
+                     border: 'none', 
+                     boxShadow: '0 4px 15px rgba(139, 92, 246, 0.3)',
+                     position: 'relative',
+                     overflow: 'hidden'
+                   }}
+                 >
+                    {fixLoading ? <Loader2 size={16} className="spinner" /> : <Sparkles size={16} />}
+                    {fixLoading ? 'Strengthening Code...' : 'Stronger Autofix (Gemini)'}
+                    {!fixLoading && (
+                      <div style={{ position: 'absolute', top: -10, right: -10, background: 'rgba(255,255,255,0.2)', fontSize: 8, padding: '2px 10px', transform: 'rotate(15deg)' }}>
+                        ULTRA
+                      </div>
+                    )}
+                  </button>
                ) : (
                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--success)', fontWeight: 600, fontSize: 14 }}>
                     <CheckCircle2 size={18} /> Fix Applied & AI Taught
@@ -264,16 +275,20 @@ export default function Review() {
           </div>
 
           {fixResult && (
-            <div className="card anim-scale" style={{ marginBottom: 24, padding: 0, border: '1px solid var(--brand-purple)' }}>
-              <div style={{ padding: '12px 20px', background: 'rgba(139, 92, 246, 0.05)', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="card anim-scale" style={{ marginBottom: 24, padding: 0, border: '1px solid var(--brand-purple)', boxShadow: '0 8px 30px rgba(139, 92, 246, 0.15)' }}>
+              <div style={{ padding: '12px 20px', background: 'rgba(139, 92, 246, 0.08)', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <Wand2 size={16} color="var(--brand-purple)" />
+                  <div style={{ background: 'var(--brand-purple)', color: 'white', borderRadius: 4, padding: '2px 6px', fontSize: 10, fontWeight: 800 }}>
+                    {fixResult.engine || 'AI ENGINE'}
+                  </div>
                   <span style={{ fontSize: 14, fontWeight: 600 }}>Suggested Correction</span>
                   {fixResult.guardrail_status === 'PASSED' ? (
-                    <span className="severity-badge severity-low" style={{ fontSize: 10 }}>Architectural Guardrail Passed</span>
+                    <span className="severity-badge severity-low" style={{ fontSize: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <ShieldCheck size={10} /> {fixResult.guardrail_msg}
+                    </span>
                   ) : (
-                    <span className="severity-badge severity-high" style={{ fontSize: 10 }}>
-                       <AlertTriangle size={10} style={{ marginRight: 4 }} /> 
+                    <span className="severity-badge severity-medium" style={{ fontSize: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
+                       <AlertTriangle size={10} /> 
                        {fixResult.guardrail_msg}
                     </span>
                   )}

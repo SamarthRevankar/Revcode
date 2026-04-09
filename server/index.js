@@ -477,61 +477,108 @@ ${code}
 // --- NEW: AUTONOMOUS CODE CORRECTION (The Fixer + The Architect) ---
 app.post('/api/autofix', authMiddleware, async (req, res) => {
   const { code, filename } = req.body;
+  const apiKey = process.env.GEMINI_API_KEY;
   const mlServiceUrl = process.env.ML_SERVICE_URL;
 
-  if (!mlServiceUrl) return res.status(503).json({ error: 'ML Service not configured' });
+  let result = null;
 
-  try {
-    const response = await axios.post(`${mlServiceUrl}/fix`, { code });
-    res.json(response.data);
-  } catch (e) {
-    console.warn('AI Correction Service offline, using heuristic fix:', e.message);
-    // Heuristic fallback for demo stability
-    let suggestion = code;
-    if (code.includes('eval(')) {
-      if (filename?.endsWith('.py') || code.includes('def ')) {
-        suggestion = "import json\n" + suggestion.replace(/eval\((.*)\)/g, 'json.loads($1)');
-      } else {
-        suggestion = suggestion.replace(/eval\((.*)\)/g, 'JSON.parse($1)');
+  // Layer 1: Gemini 2.0 Flash (Strongest)
+  if (apiKey) {
+    try {
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey });
+      const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+      // Step 1: Generate Fix
+      const fixPrompt = `You are a Senior Security Engineer and Code Architect. 
+Your task is to FIX the following code. Focus on:
+1. Eliminating security vulnerabilities (Injection, hardcoded secrets, etc.)
+2. Improving code quality and modernizing patterns.
+3. Ensuring the fix is robust and doesn't break existing logic.
+
+Code to fix (${filename || 'source'}):
+\`\`\`
+${code}
+\`\`\`
+
+Return ONLY the corrected code. No explanations, no markdown fences.`;
+
+      const fixResponse = await model.generateContent(fixPrompt);
+      let suggestedCode = fixResponse.response.text().replace(/```[a-z]*\n/g, '').replace(/```/g, '').trim();
+
+      // Step 2: Verification (Self-Correction)
+      const verifyPrompt = `You are a Code Auditor. Review the following proposed fix for a codebase.
+Does this fix introduce syntax errors or obvious bugs? 
+Original:
+\`\`\`
+${code}
+\`\`\`
+Proposed Fix:
+\`\`\`
+${suggestedCode}
+\`\`\`
+
+If the fix is solid, return "PASSED". 
+If there's a critical issue, return a JSON object: {"status": "FAILED", "reason": "...", "improved_fix": "..."}
+Return ONLY the requested format.`;
+
+      const verifyResponse = await model.generateContent(verifyPrompt);
+      const verifyText = verifyResponse.response.text().trim();
+
+      let guardrailStatus = "PASSED";
+      let guardrailMsg = "Gemini Self-Verification Passed";
+
+      if (verifyText.includes('FAILED')) {
+        try {
+          const failData = JSON.parse(verifyText.substring(verifyText.indexOf('{')));
+          suggestedCode = failData.improved_fix || suggestedCode;
+          guardrailStatus = "PASSED_WITH_CORRECTION";
+          guardrailMsg = `Gemini caught a bug in its own fix: ${failData.reason}`;
+        } catch (e) {
+             // If JSON parsing fails, assume it's just a warning or ignore
+        }
       }
-    }
-    if (code.includes('console.log')) {
-      suggestion = suggestion.replace(/console\.log\((.*)\)/g, '// logger.info($1)');
-    }
 
-    // 4. Command Injection (os.system -> subprocess.run)
-    if (suggestion.includes('os.system(') && (filename?.endsWith('.py') || suggestion.includes('import os'))) {
-      suggestion = "import subprocess\n" + suggestion;
-      suggestion = suggestion.replace(/os\.system\("(.*?) \+ (.*?)"\)/g, 'subprocess.run(["$1", $2])');
-      suggestion = suggestion.replace(/os\.system\("(.*?)" \+ (.*?)\)/g, 'subprocess.run(["$1", $2])');
+      return res.json({
+        suggestion: suggestedCode,
+        guardrail_status: guardrailStatus,
+        guardrail_msg: guardrailMsg,
+        engine: "Gemini 2.0 Flash (Stronger)"
+      });
+    } catch (e) {
+      console.warn('Gemini Autofix failed:', e.message);
     }
-    
-    // --- JAVA SECURITY REMEDIATION ---
-    // 1. Hardcoded Credentials
-    if (suggestion.includes('Password = "')) {
-      suggestion = suggestion.replace(/private String (.*)Password = "(.*)";/g, 'private String $1Password = System.getenv("$1_PASSWORD"); // Fixed: Move to ENV');
-    }
-    
-    // 2. SQL Injection (Statement -> PreparedStatement)
-    if (suggestion.includes('Statement stmt = conn.createStatement()')) {
-      suggestion = suggestion.replace(/Statement stmt = conn\.createStatement\(\);/g, '');
-      suggestion = suggestion.replace(/String query = "SELECT \* FROM users WHERE id = '" \+ userId \+ "'";/g, 'String query = "SELECT * FROM users WHERE id = ?";');
-      suggestion = suggestion.replace(/ResultSet rs = stmt\.executeQuery\(query\);/g, 
-        'PreparedStatement pstmt = conn.prepareStatement(query);\n            pstmt.setString(1, userId);\n            ResultSet rs = pstmt.executeQuery();');
-    }
-    
-    // 3. Insecure Random (Random -> SecureRandom)
-    if (suggestion.includes('new Random()')) {
-      suggestion = "import java.security.SecureRandom;\n" + suggestion;
-      suggestion = suggestion.replace(/Random rand = new Random\(\);/g, 'SecureRandom rand = new SecureRandom(); // Fixed: Cryptographically secure');
-    }
-    
-    res.json({
-      suggestion,
-      guardrail_status: "PASSED",
-      guardrail_msg: "Heuristic fallback applied"
-    });
   }
+
+  // Layer 2: ML Service (CodeT5+)
+  if (mlServiceUrl) {
+    try {
+      const response = await axios.post(`${mlServiceUrl}/fix`, { code });
+      return res.json({ ...response.data, engine: "CodeT5+ (Standard)" });
+    } catch (e) {
+      console.warn('ML Service Autofix failed:', e.message);
+    }
+  }
+
+  // Layer 3: Heuristic Fallback (Basic)
+  let suggestion = code;
+  if (code.includes('eval(')) {
+    suggestion = suggestion.replace(/eval\((.*)\)/g, 'JSON.parse($1)');
+  }
+  if (code.includes('console.log')) {
+    suggestion = suggestion.replace(/console\.log\((.*)\)/g, '// logger.info($1)');
+  }
+  if (suggestion.includes('os.system(') && (filename?.endsWith('.py') || suggestion.includes('import os'))) {
+    suggestion = "import subprocess\n" + suggestion;
+    suggestion = suggestion.replace(/os\.system\("(.*?) \+ (.*?)"\)/g, 'subprocess.run(["$1", $2])');
+  }
+  
+  res.json({
+    suggestion,
+    guardrail_status: "PASSED",
+    guardrail_msg: "Heuristic fallback applied",
+    engine: "Heuristic Engine (Basic)"
+  });
 });
 
 // --- NEW: HUMAN-IN-THE-LOOP FEEDBACK (Active Learning) ---

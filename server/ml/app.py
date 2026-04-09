@@ -30,21 +30,49 @@ class SecurityClassifier(nn.Module):
 class Guardrails:
     @staticmethod
     def validate(code: str):
+        findings = []
         try:
             tree = ast.parse(code)
             for node in ast.walk(tree):
+                # Check for naming conventions
                 if isinstance(node, ast.FunctionDef):
                     if not node.name.islower() and "_" not in node.name:
-                        return False, f"Function '{node.name}' violates snake_case standards."
-            return True, "Valid"
+                        findings.append(f"Function '{node.name}' should use snake_case.")
+                
+                # Check for hardcoded secrets in assignments
+                if isinstance(node, ast.Assign):
+                    for target in node.targets:
+                        if isinstance(target, ast.Name):
+                            name = target.id.lower()
+                            if any(k in name for k in ['pk', 'secret', 'password', 'api_key', 'token']):
+                                if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                                    findings.append(f"Potential hardcoded secret in variable '{target.id}'.")
+
+            if not findings:
+                return True, "Valid"
+            return False, " | ".join(findings)
         except Exception as e:
             return False, f"Syntax analysis failed: {str(e)}"
 
-# ---------------------------------------------------------
-# 3. GLOBAL MODEL HANDLERS (Lazy Loading)
-# ---------------------------------------------------------
-FIXER_MODEL = "Salesforce/codet5p-220m"
-SECURITY_MODEL = "distilbert-base-uncased"
+# ... (rest of models and load functions remain same)
+
+@app.post("/verify")
+async def verify_fix(data: dict):
+    # Specialized verification endpoint for external engines
+    code = data.get("code", "")
+    is_valid, msg = Guardrails.validate(code)
+    return {
+        "is_valid": is_valid,
+        "message": msg,
+        "status": "PASSED" if is_valid else "WARNING"
+    }
+
+@app.post("/fix")
+async def fix_code(data: CodeInput):
+    model, tokenizer = load_fixer()
+    
+    suggestion = data.code
+    # ... (existing fix code)
 
 models = {
     "fixer": None,

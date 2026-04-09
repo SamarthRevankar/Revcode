@@ -1,4 +1,4 @@
-<!-- ---
+---
 title: Revcode AI Engine
 emoji: 🛡️
 colorFrom: purple
@@ -9,7 +9,7 @@ pinned: false
 ---
 
 # Revcode AI Intelligence Stack
-This Space hosts the 3-model AI Orchestrator for the Revcode AI platform.
+<!-- This Space hosts the 3-model AI Orchestrator for the Revcode AI platform.
 
 ## Models Included:
 1. **The Fixer**: CodeT5+ 220M
