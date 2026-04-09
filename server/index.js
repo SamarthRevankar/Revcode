@@ -434,7 +434,7 @@ ${code}
   // Layer 2: Deep Security Scan (DistilBERT Guardian)
   if (mlServiceUrl) {
     try {
-      const secRes = await axios.post(`${mlServiceUrl}/analyze`, { code });
+      const secRes = await axios.post(`${mlServiceUrl}/analyze`, { code, filename });
       if (secRes.data && result) {
         // Enrich Gemini results with specialized security model findings
         result.securityScan = secRes.data;
@@ -553,7 +553,7 @@ Return ONLY the requested format.`;
   // Layer 2: ML Service (CodeT5+)
   if (mlServiceUrl) {
     try {
-      const response = await axios.post(`${mlServiceUrl}/fix`, { code });
+      const response = await axios.post(`${mlServiceUrl}/fix`, { code, filename });
       return res.json({ ...response.data, engine: "CodeT5+ (Standard)" });
     } catch (e) {
       console.warn('ML Service Autofix failed:', e.message);

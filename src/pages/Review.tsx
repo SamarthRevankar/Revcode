@@ -242,7 +242,16 @@ export default function Review() {
                 )}
               </div>
               <h3 style={{ fontSize: 18, marginBottom: 6 }}>AI Feedback</h3>
-              <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.6 }}>{result.feedback}</p>
+              <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.6, marginBottom: 12 }}>{result.feedback}</p>
+              
+              {result.securityScan?.reasoning && (
+                <div style={{ background: 'rgba(139, 92, 246, 0.05)', borderLeft: '3px solid var(--brand-purple)', padding: '10px 14px', borderRadius: '0 8px 8px 0', fontSize: 13 }}>
+                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, color: 'var(--brand-purple)', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                     <Sparkles size={12} /> AI Reasoning Layer
+                   </div>
+                   <span style={{ color: 'var(--text-secondary)' }}>{result.securityScan.reasoning}</span>
+                </div>
+              )}
             </div>
             <div style={{ display: 'flex', alignItems: 'center' }}>
                {!applied ? (

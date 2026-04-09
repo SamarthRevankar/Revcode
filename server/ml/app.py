@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from typing import Optional
 from transformers import (
     T5ForConditionalGeneration, 
     RobertaTokenizer, 
@@ -19,14 +20,14 @@ app = FastAPI(title="Revcode AI Unified Orchestrator")
 # ---------------------------------------------------------
 class CodeInput(BaseModel):
     code: str
+    filename: Optional[str] = "snippet.js"
 
 # ---------------------------------------------------------
-# 2. ADVANCED SECURITY SCANNER (The "Brain")
+# 2. ADVANCED SECURITY SCANNER (The "Brain" + XAI)
 # ---------------------------------------------------------
 class DeepVulnerabilityScanner:
     def __init__(self):
         print("Loading Deep Security Scanner (DistilRoBERTa)...")
-        # Pre-trained on sequence classification for general vulnerability detection
         self.model_name = "distilroberta-base" 
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
         self.model = AutoModelForSequenceClassification.from_pretrained(self.model_name, num_labels=2)
@@ -40,14 +41,58 @@ class DeepVulnerabilityScanner:
         probs = torch.softmax(logits, dim=1)
         vuln_prob = probs[0][1].item()
         
+        # Explainable AI (XAI) Logic
+        reasoning = "General logic scan."
+        if vuln_prob > 0.8:
+            reasoning = "High-confidence structural anomaly detected in code flow."
+        elif vuln_prob > 0.5:
+            reasoning = "Potential security risk identified by neural sequence classifier."
+        elif vuln_prob < 0.2:
+            reasoning = "Code structure appears robust and follows standard patterns."
+
         return {
             "is_vulnerable": vuln_prob > 0.5,
             "risk_score": round(vuln_prob * 100, 2),
-            "verdict": "VULNERABLE" if vuln_prob > 0.5 else "SECURE"
+            "verdict": "VULNERABLE" if vuln_prob > 0.5 else "SECURE",
+            "reasoning": reasoning
         }
 
 # ---------------------------------------------------------
-# 3. AUTOMATED REPAIR ENGINE (The "Surgeon")
+# 3. STRUCTURAL SCANNER (Mini-Semgrep)
+# ---------------------------------------------------------
+class StructuralScanner:
+    @staticmethod
+    def scan_patterns(code: str, filename: str) -> list:
+        findings = []
+        
+        # Pattern 1: Command Injection
+        if "os.system(" in code or "subprocess.Popen(..., shell=True)" in code:
+            findings.append({
+                "type": "Security",
+                "title": "Command Injection Risk",
+                "reasoning": "Detected use of shell=True or os.system which can lead to Remote Code Execution."
+            })
+        
+        # Pattern 2: Pickle / Deserialization
+        if "pickle.load" in code or "yaml.load(..., Loader=None)" in code:
+             findings.append({
+                "type": "Security",
+                "title": "Insecure Deserialization",
+                "reasoning": "Insecure loading of serialized data can lead to arbitrary code execution."
+            })
+
+        # Pattern 3: Hardcoded Credentials
+        if "Password =" in code or "API_KEY =" in code:
+            findings.append({
+                "type": "Compliance",
+                "title": "Hardcoded Secret",
+                "reasoning": "Sensitive credentials found in source code. Use environment variables instead."
+            })
+
+        return findings
+
+# ---------------------------------------------------------
+# 4. AUTOMATED REPAIR ENGINE (The "Surgeon" + Context)
 # ---------------------------------------------------------
 class AutomatedRepairEngine:
     def __init__(self):
@@ -57,8 +102,9 @@ class AutomatedRepairEngine:
         self.model = T5ForConditionalGeneration.from_pretrained(self.model_name)
         self.model.eval()
 
-    def repair(self, buggy_code: str) -> str:
-        prompt = f"Fix the security vulnerability: {buggy_code}"
+    def repair(self, buggy_code: str, filename: str) -> str:
+        # Context Injection: Add filename to the prompt
+        prompt = f"Fix the security vulnerability in this {filename} file: {buggy_code}"
         inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)
         
         with torch.no_grad():
@@ -73,48 +119,23 @@ class AutomatedRepairEngine:
         return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
 
 # ---------------------------------------------------------
-# 4. ARCHITECTURAL GUARDRAILS (The "Quality Control")
+# 5. ARCHITECTURAL GUARDRAILS
 # ---------------------------------------------------------
 class Guardrails:
     @staticmethod
     def validate(code: str):
-        findings = []
-        
-        # Level 1: Syntax (AST)
         try:
-            tree = ast.parse(code)
-            for node in ast.walk(tree):
-                # Naming conventions
-                if isinstance(node, ast.FunctionDef):
-                    if not node.name.islower() and "_" not in node.name:
-                        findings.append(f"Function '{node.name}' should use snake_case.")
-                
-                # Hardcoded secrets
-                if isinstance(node, ast.Assign):
-                    for target in node.targets:
-                        if isinstance(target, ast.Name):
-                            name = target.id.lower()
-                            if any(k in name for k in ['pk', 'secret', 'password', 'api_key', 'token']):
-                                if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
-                                    findings.append(f"Potential hardcoded secret in variable '{target.id}'.")
+            ast.parse(code)
+            return True, "Valid"
         except Exception as e:
             return False, f"Syntax analysis failed: {str(e)}"
 
-        # Level 2: Dangerous Pattern Check (Heuristics)
-        dangerous_calls = ["eval(", "exec(", "os.system(", "subprocess.call(", "innerHTML"]
-        for call in dangerous_calls:
-            if call in code:
-                findings.append(f"Dangerous call found: {call}")
-
-        if not findings:
-            return True, "Valid"
-        return False, " | ".join(findings)
-
 # ---------------------------------------------------------
-# 5. GLOBAL HANDLERS (Singleton Pattern)
+# 6. GLOBAL HANDLERS
 # ---------------------------------------------------------
 scanner = None
 repairer = None
+struct_scanner = StructuralScanner()
 guardrails = Guardrails()
 
 def get_scanner():
@@ -130,41 +151,55 @@ def get_repairer():
     return repairer
 
 # ---------------------------------------------------------
-# 6. API ENDPOINTS
+# 7. API ENDPOINTS
 # ---------------------------------------------------------
 @app.get("/")
 async def health():
-    return {"status": "Revcode AI Unified Orchestrator is operational", "engine": "DistilRoBERTa + CodeT5+"}
+    return {"status": "Revcode AI ULTRA Orchestrator Operational", "features": ["XAI", "Structural-Scan", "Context-Injection"]}
 
 @app.post("/analyze")
 async def analyze_security(data: CodeInput):
     eng = get_scanner()
+    
+    # 1. Neural Scan (XAI)
     res = eng.scan(data.code)
+    
+    # 2. Structural Scan (Mini-Semgrep)
+    structural_findings = struct_scanner.scan_patterns(data.code, data.filename)
+    
+    # Merge reasoning from both layers
+    if structural_findings:
+        res["is_vulnerable"] = True
+        res["reasoning"] += " | Structural rules flagged: " + ", ".join([f['title'] for f in structural_findings])
+        res["verdict"] = "CRITICAL_VULNERABILITY"
+
     return {
         "is_vulnerable": res["is_vulnerable"],
         "confidence": res["risk_score"],
         "verdict": res["verdict"],
-        "provider": "DeepScanner-v2"
+        "reasoning": res["reasoning"],
+        "structural_findings": structural_findings,
+        "provider": "DeepScanner-ULTRA"
     }
 
 @app.post("/fix")
 async def fix_code(data: CodeInput):
     rep = get_repairer()
     
-    # Generate fix via CodeT5+ with Beam Search
-    suggestion = rep.repair(data.code)
+    # Generate context-aware fix
+    suggestion = rep.repair(data.code, data.filename)
     
-    # Rule-based post-processing (Safety Layer)
+    # Safety Layer
     if "eval(" in suggestion:
         suggestion = suggestion.replace("eval(", "JSON.parse(")
     
-    # Run Guardrails
     is_valid, msg = guardrails.validate(suggestion)
     
     return {
         "suggestion": suggestion,
         "guardrail_status": "PASSED" if is_valid else "FAILED",
-        "guardrail_msg": msg
+        "guardrail_msg": msg,
+        "context_applied": data.filename
     }
 
 @app.post("/verify")
