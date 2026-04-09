@@ -10,7 +10,13 @@ import os
 app = FastAPI(title="Revcode AI Unified Orchestrator")
 
 # ---------------------------------------------------------
-# 1. SECURITY GUARDIAN (DistilBERT)
+# 1. DATA MODELS
+# ---------------------------------------------------------
+class CodeInput(BaseModel):
+    code: str
+
+# ---------------------------------------------------------
+# 2. SECURITY GUARDIAN (DistilBERT)
 # ---------------------------------------------------------
 class SecurityClassifier(nn.Module):
     def __init__(self):
@@ -25,7 +31,7 @@ class SecurityClassifier(nn.Module):
         return self.classifier(outputs.last_hidden_state[:, 0, :])
 
 # ---------------------------------------------------------
-# 2. ARCHITECTURAL GUARDRAILS
+# 3. ARCHITECTURAL GUARDRAILS
 # ---------------------------------------------------------
 class Guardrails:
     @staticmethod
@@ -54,25 +60,11 @@ class Guardrails:
         except Exception as e:
             return False, f"Syntax analysis failed: {str(e)}"
 
-# ... (rest of models and load functions remain same)
-
-@app.post("/verify")
-async def verify_fix(data: dict):
-    # Specialized verification endpoint for external engines
-    code = data.get("code", "")
-    is_valid, msg = Guardrails.validate(code)
-    return {
-        "is_valid": is_valid,
-        "message": msg,
-        "status": "PASSED" if is_valid else "WARNING"
-    }
-
-@app.post("/fix")
-async def fix_code(data: CodeInput):
-    model, tokenizer = load_fixer()
-    
-    suggestion = data.code
-    # ... (existing fix code)
+# ---------------------------------------------------------
+# 4. GLOBAL MODEL HANDLERS (Lazy Loading)
+# ---------------------------------------------------------
+FIXER_MODEL = "Salesforce/codet5p-220m"
+SECURITY_MODEL = "distilbert-base-uncased"
 
 models = {
     "fixer": None,
@@ -104,17 +96,17 @@ def load_security():
     return models["security"], models["tokenizers"].get("security")
 
 # ---------------------------------------------------------
-# 4. API ENDPOINTS
+# 5. API ENDPOINTS
 # ---------------------------------------------------------
-class CodeInput(BaseModel):
-    code: str
+@app.get("/")
+async def health():
+    return {"status": "Revcode AI Engine is alive", "models_loaded": list(models.keys())}
 
 @app.post("/analyze")
 async def analyze_security(data: CodeInput):
     model, tokenizer = load_security()
     
     if model == "HEURISTIC":
-        # Rule-based fallback for security
         is_vulnerable = "eval(" in data.code or "innerHTML" in data.code
         return {
             "is_vulnerable": is_vulnerable,
@@ -141,7 +133,7 @@ async def fix_code(data: CodeInput):
     model, tokenizer = load_fixer()
     
     suggestion = data.code
-    if model == "RULE_ENGINE":
+    if model == "RULE_ENGINE" or not model:
         # Advanced Rule-based correction
         suggestion = data.code.replace("eval(", "JSON.parse(").replace("console.log(", "// logger.info(")
         status = "PASSED"
@@ -163,15 +155,19 @@ async def fix_code(data: CodeInput):
         "guardrail_msg": msg
     }
 
+@app.post("/verify")
+async def verify_fix(data: CodeInput):
+    # Specialized verification endpoint for external engines
+    is_valid, msg = Guardrails.validate(data.code)
+    return {
+        "is_valid": is_valid,
+        "message": msg,
+        "status": "PASSED" if is_valid else "WARNING"
+    }
+
 @app.post("/feedback")
 async def store_feedback(data: dict):
-    # Store feedback for HITL (Human-In-The-Loop)
-    # columns: original_code, corrected_code
     feedback_file = "feedback_dataset.csv"
     df = pd.DataFrame([data])
     df.to_csv(feedback_file, mode='a', header=not os.path.exists(feedback_file), index=False)
     return {"status": "Feedback stored for retraining"}
-
-@app.get("/")
-async def health():
-    return {"status": "Revcode AI Engine is alive", "models_loaded": list(models.keys())}
