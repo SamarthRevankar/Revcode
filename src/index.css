@@ -38,6 +38,12 @@
   --shadow-md: 0 8px 24px rgba(0,0,0,0.3);
   --shadow-lg: 0 16px 48px rgba(0,0,0,0.4);
   --shadow-glow: 0 0 30px var(--brand-glow);
+  
+  --glass-shine: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0) 50%, rgba(255,255,255,0.02) 100%);
+  --diff-add-bg: rgba(16, 185, 129, 0.12);
+  --diff-add-text: #34d399;
+  --diff-remove-bg: rgba(239, 68, 68, 0.12);
+  --diff-remove-text: #f87171;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -230,6 +236,16 @@ input, textarea, select { font-family: inherit; font-size: inherit; }
   padding: 28px;
   box-shadow: var(--shadow-md);
   margin-bottom: 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+.glass-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--glass-shine);
+  pointer-events: none;
 }
 .glass-card.floating { animation: float 6s ease-in-out infinite; }
 
@@ -678,6 +694,71 @@ input, textarea, select { font-family: inherit; font-size: inherit; }
 .history-item:hover { background: var(--bg-hover); }
 
 /* ======= RESPONSIVE ======= */
+/* ======= DIFF VIEWER ======= */
+.diff-container {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+}
+
+.diff-line {
+  display: flex;
+  padding: 2px 16px;
+  white-space: pre-wrap;
+  min-height: 24px;
+}
+
+.diff-line-num {
+  width: 40px;
+  padding-right: 12px;
+  color: var(--text-muted);
+  text-align: right;
+  border-right: 1px solid var(--border-color);
+  margin-right: 12px;
+  user-select: none;
+}
+
+.diff-added {
+  background: var(--diff-add-bg);
+  color: var(--diff-add-text);
+}
+
+.diff-removed {
+  background: var(--diff-remove-bg);
+  color: var(--diff-remove-text);
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+/* ======= ORCHESTRATION ANIMATIONS ======= */
+.orchestration-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  background: var(--bg-hover);
+  margin-bottom: 8px;
+  border: 1px solid transparent;
+  transition: all 0.3s ease;
+}
+
+.orchestration-step.active {
+  border-color: var(--brand-purple);
+  background: rgba(139, 92, 246, 0.05);
+  box-shadow: 0 0 15px rgba(139, 92, 246, 0.1);
+  transform: scale(1.02);
+}
+
+.orchestration-step.completed {
+  opacity: 0.6;
+  color: var(--success);
+}
+
 @media (max-width: 768px) {
   .sidebar { display: none; }
   .main-area { margin-left: 0; padding: 16px; }

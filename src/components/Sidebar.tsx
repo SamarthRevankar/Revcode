@@ -11,7 +11,7 @@ export default function Sidebar({ currentPage, onNavigate, user }: SidebarProps)
   const links = [
     { id: 'dashboard', icon: Home, label: 'Repositories' },
     { id: 'review', icon: Code2, label: 'AI Code Review' },
-    { id: 'cloud', icon: Cloud, label: 'Cloud Security' },
+    { id: 'cloud', icon: Shield, label: 'Security' },
     { id: 'howto', icon: Book, label: 'How to Use' },
     { id: 'settings', icon: Settings, label: 'Settings' },
   ];

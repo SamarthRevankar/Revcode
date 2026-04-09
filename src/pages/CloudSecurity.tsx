@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, Loader2, AlertTriangle, CheckCircle, RefreshCcw } from 'lucide-react';
-import { getRepositories, runCloudScan, getCloudScans } from '../api';
+import { getRepositories, runSecurityScan, getSecurityScans } from '../api';
 
 export default function CloudSecurity() {
   const [repos, setRepos] = useState<any[]>([]);
@@ -8,11 +8,12 @@ export default function CloudSecurity() {
   const [scanning, setScanning] = useState('');
   const [selectedScan, setSelectedScan] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [scanStatus, setScanStatus] = useState<'idle' | 'fetching' | 'analyzing'>('idle');
 
   const load = async () => {
     setLoading(true);
     try {
-      const [repoData, scanData] = await Promise.all([getRepositories(), getCloudScans()]);
+      const [repoData, scanData] = await Promise.all([getRepositories(), getSecurityScans()]);
       setRepos(repoData.repositories || []);
       setScans(scanData.scans || []);
     } catch (e) { console.error(e); }
@@ -23,14 +24,19 @@ export default function CloudSecurity() {
 
   const handleScan = async (repoId: string) => {
     setScanning(repoId);
+    setScanStatus('fetching');
     try {
-      const result = await runCloudScan(repoId);
+      // Small artificial delay for "fetching" UX
+      await new Promise(r => setTimeout(r, 1200));
+      setScanStatus('analyzing');
+      const result = await runSecurityScan(repoId);
       setSelectedScan(result);
       load();
     } catch (e: any) {
       alert(e.message);
     }
     setScanning('');
+    setScanStatus('idle');
   };
 
   const severityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
@@ -40,10 +46,10 @@ export default function CloudSecurity() {
       <div className="anim-slide-up" style={{ marginBottom: 28 }}>
         <h1 style={{ fontSize: 26, display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
           <Shield size={24} color="var(--brand-blue)" />
-          Cloud Security
+          Security
         </h1>
         <p style={{ color: 'var(--text-secondary)', fontSize: 14 }}>
-          Scan your repositories for cloud security vulnerabilities, misconfigurations, and compliance issues
+          Scan your repositories for security vulnerabilities, misconfigurations, and compliance issues
         </p>
       </div>
 
@@ -73,9 +79,10 @@ export default function CloudSecurity() {
                   className="btn btn-primary btn-sm"
                   onClick={() => handleScan(repo.id)}
                   disabled={scanning === repo.id}
+                  style={{ minWidth: 100 }}
                 >
                   {scanning === repo.id ? <Loader2 size={14} className="spinner" /> : <Shield size={14} />}
-                  {scanning === repo.id ? 'Scanning...' : 'Scan'}
+                  {scanning === repo.id ? (scanStatus === 'fetching' ? 'Fetching...' : 'Deep Scan...') : 'Safe Scan'}
                 </button>
               </div>
             ))
@@ -99,6 +106,17 @@ export default function CloudSecurity() {
                 <button className="btn btn-outline btn-sm" onClick={() => setSelectedScan(null)}>← Back</button>
               </div>
               <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>{selectedScan.summary}</p>
+              
+              {selectedScan.sourceFiles?.length > 0 && (
+                <div style={{ marginBottom: 20, padding: 12, background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', fontWeight: 600 }}>Scanned Infrastructure Files</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {selectedScan.sourceFiles.map((f: string) => (
+                      <span key={f} style={{ fontSize: 11, padding: '2px 8px', background: 'var(--bg-hover)', borderRadius: 4, fontFamily: 'monospace' }}>{f}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
               
               <h4 style={{ fontSize: 14, marginBottom: 12 }}>Findings ({selectedScan.findings.length})</h4>
               {selectedScan.findings

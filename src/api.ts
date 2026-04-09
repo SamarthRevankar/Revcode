@@ -108,15 +108,29 @@ export async function getReviews() {
   return request('/reviews');
 }
 
-// Cloud Security
-export async function runCloudScan(repositoryId: string) {
+export async function submitAutofix(code: string) {
+  return request('/autofix', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  });
+}
+
+export async function submitFeedback(original_code: string, corrected_code: string) {
+  return request('/ai/feedback', {
+    method: 'POST',
+    body: JSON.stringify({ original_code, corrected_code }),
+  });
+}
+
+// Security Scans
+export async function runSecurityScan(repositoryId: string) {
   return request('/cloud/scan', {
     method: 'POST',
     body: JSON.stringify({ repositoryId }),
   });
 }
 
-export async function getCloudScans() {
+export async function getSecurityScans() {
   return request('/cloud/scans');
 }
 

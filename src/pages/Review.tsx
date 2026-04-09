@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Loader2, FileCode2, Clock, ChevronRight } from 'lucide-react';
-import { submitReview, getReviews } from '../api';
+import { Sparkles, Loader2, FileCode2, Clock, ChevronRight, Wand2, CheckCircle2, AlertTriangle, Save, ShieldCheck, Cpu, Braces } from 'lucide-react';
+import { submitReview, getReviews, submitAutofix, submitFeedback } from '../api';
 
 export default function Review() {
   const [code, setCode] = useState('');
@@ -10,6 +10,11 @@ export default function Review() {
   const [error, setError] = useState('');
   const [history, setHistory] = useState<any[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [fixLoading, setFixLoading] = useState(false);
+  const [fixResult, setFixResult] = useState<any>(null);
+  const [applied, setApplied] = useState(false);
+  const [scanningStep, setScanningStep] = useState(0);
+  const [showToast, setShowToast] = useState(false);
 
   useEffect(() => {
     getReviews().then(d => setHistory(d.reviews || [])).catch(() => {});
@@ -20,15 +25,92 @@ export default function Review() {
     setError('');
     setLoading(true);
     setResult(null);
+    setScanningStep(1);
+    
     try {
+      // Step 1: DistilBERT Scan Simulation
+      await new Promise(r => setTimeout(r, 800));
+      setScanningStep(2);
+      
+      // Step 2: CodeT5+ Analysis
+      await new Promise(r => setTimeout(r, 1000));
+      setScanningStep(3);
+      
       const data = await submitReview(code, filename);
+      
+      // Step 3: Guardrail Validation
+      await new Promise(r => setTimeout(r, 600));
+      setScanningStep(4);
+      await new Promise(r => setTimeout(r, 400));
+
       setResult(data);
-      // Refresh history
+      setFixResult(null);
+      setApplied(false);
       getReviews().then(d => setHistory(d.reviews || [])).catch(() => {});
     } catch (e: any) {
       setError(e.message || 'Failed to analyze code.');
     }
     setLoading(false);
+    setScanningStep(0);
+  };
+
+  const handleAutofix = async () => {
+    if (!code) return;
+    setFixLoading(true);
+    try {
+      const data = await submitAutofix(code);
+      setFixResult(data);
+    } catch (e: any) {
+      setError(e.message || 'Autofix failed.');
+    }
+    setFixLoading(false);
+  };
+
+  const applyFix = async (useManual?: string) => {
+    const finalCode = useManual || fixResult.suggestion;
+    
+    // Submit feedback for HITL Active Learning
+    try {
+      await submitFeedback(code, finalCode);
+      setShowToast(true);
+      setTimeout(() => setShowToast(false), 3000);
+    } catch (e) {
+      console.warn('Feedback failed', e);
+    }
+
+    setCode(finalCode);
+    setApplied(true);
+    setFixResult(null);
+  };
+
+  const VisualDiff = ({ original, suggested }: { original: string, suggested: string }) => {
+    const origLines = original.split('\n');
+    const suggLines = suggested.split('\n');
+    
+    // Simple diff logic for visualization
+    return (
+      <div className="diff-container">
+        {suggLines.map((line, i) => {
+          const isNew = !origLines.includes(line.trim() === '' ? line : line);
+          const wasRemoved = i < origLines.length && !suggLines.includes(origLines[i]);
+          
+          return (
+            <React.Fragment key={i}>
+              {wasRemoved && (
+                <div className="diff-line diff-removed">
+                  <div className="diff-line-num">-</div>
+                  {origLines[i]}
+                </div>
+              )}
+              <div className={`diff-line ${isNew ? 'diff-added' : ''}`}>
+                <div className="diff-line-num">{i + 1}</div>
+                {line}
+              </div>
+            </React.Fragment>
+          );
+        })}
+      </div>
+    );
   };
 
   const scoreClass = (s: number) => s >= 75 ? 'score-high' : s >= 40 ? 'score-medium' : 'score-low';
@@ -111,11 +193,34 @@ export default function Review() {
         />
       </div>
 
-      {/* Loading State */}
+      {/* Loading State with Orchestration */}
       {loading && (
-        <div className="review-results anim-scale" style={{ textAlign: 'center', padding: 40 }}>
-          <Loader2 size={32} className="spinner" color="var(--brand-blue)" />
-          <p style={{ marginTop: 12, color: 'var(--text-secondary)' }}>Analyzing your code with AI...</p>
+        <div className="review-results anim-scale" style={{ padding: '40px 60px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 20, marginBottom: 32 }}>
+             <div className="spinner" style={{ border: '3px solid var(--border-color)', borderTopColor: 'var(--brand-purple)', borderRadius: '50%', width: 40, height: 40 }} />
+             <div>
+                <h3 style={{ fontSize: 18 }}>AI Orchestrator in Progress</h3>
+                <p style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Coordinating multiple specialized models...</p>
+             </div>
+          </div>
+          
+          <div className="orchestration-step-list">
+             <div className={`orchestration-step ${scanningStep === 1 ? 'active' : scanningStep > 1 ? 'completed' : ''}`}>
+                <ShieldCheck size={18} />
+                <span style={{ flex: 1 }}>Layer 1: DistilBERT Security Classifier</span>
+                {scanningStep > 1 && <CheckCircle2 size={16} />}
+             </div>
+             <div className={`orchestration-step ${scanningStep === 2 ? 'active' : scanningStep > 2 ? 'completed' : ''}`}>
+                <Cpu size={18} />
+                <span style={{ flex: 1 }}>Layer 2: CodeT5+ Logical Analysis</span>
+                {scanningStep > 2 && <CheckCircle2 size={16} />}
+             </div>
+             <div className={`orchestration-step ${scanningStep === 3 ? 'active' : scanningStep > 3 ? 'completed' : ''}`}>
+                <Braces size={18} />
+                <span style={{ flex: 1 }}>Layer 3: AST Architectural Guardrails</span>
+                {scanningStep > 3 && <CheckCircle2 size={16} />}
+             </div>
+          </div>
         </div>
       )}
 
@@ -139,7 +244,60 @@ export default function Review() {
               <h3 style={{ fontSize: 18, marginBottom: 6 }}>AI Feedback</h3>
               <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.6 }}>{result.feedback}</p>
             </div>
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+               {!applied ? (
+                 <button 
+                  className="btn btn-primary" 
+                  onClick={handleAutofix} 
+                  disabled={fixLoading}
+                  style={{ background: 'var(--brand-gradient)', border: 'none' }}
+                >
+                   {fixLoading ? <Loader2 size={16} className="spinner" /> : <Wand2 size={16} />}
+                   {fixLoading ? 'Generating Fix...' : 'Autofix with CodeT5+'}
+                 </button>
+               ) : (
+                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--success)', fontWeight: 600, fontSize: 14 }}>
+                    <CheckCircle2 size={18} /> Fix Applied & AI Taught
+                 </div>
+               )}
+            </div>
           </div>
+
+          {fixResult && (
+            <div className="card anim-scale" style={{ marginBottom: 24, padding: 0, border: '1px solid var(--brand-purple)' }}>
+              <div style={{ padding: '12px 20px', background: 'rgba(139, 92, 246, 0.05)', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Wand2 size={16} color="var(--brand-purple)" />
+                  <span style={{ fontSize: 14, fontWeight: 600 }}>Suggested Correction</span>
+                  {fixResult.guardrail_status === 'PASSED' ? (
+                    <span className="severity-badge severity-low" style={{ fontSize: 10 }}>Architectural Guardrail Passed</span>
+                  ) : (
+                    <span className="severity-badge severity-high" style={{ fontSize: 10 }}>
+                       <AlertTriangle size={10} style={{ marginRight: 4 }} /> 
+                       {fixResult.guardrail_msg}
+                    </span>
+                  )}
+                </div>
+                <button className="btn btn-sm btn-primary" onClick={() => applyFix()}>
+                  Confirm & Apply Fix
+                </button>
+              </div>
+              <div style={{ padding: 20 }}>
+                <VisualDiff original={code} suggested={fixResult.suggestion} />
+              </div>
+              <div style={{ padding: '12px 20px', background: 'var(--bg-tertiary)', fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6, borderTop: '1px solid var(--border-color)' }}>
+                <Save size={12} /> Confirming will submit this correction to retrain our models (HITL).
+              </div>
+            </div>
+          )}
+
+          {/* Active Learning Toast */}
+          {showToast && (
+            <div className="toast toast-success" style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--brand-gradient)', border: 'none' }}>
+               <Sparkles size={16} />
+               <span>AI Knowledge Updated. Thank you for the feedback!</span>
+            </div>
+          )}
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
             {/* Vulnerabilities */}

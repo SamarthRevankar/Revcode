@@ -6,7 +6,7 @@ export default function HowToUse() {
     {
       icon: GitBranch, color: '#3b82f6',
       title: '1. Connect Your Repositories',
-      description: 'Sign in with GitHub, GitLab, Bitbucket, or Azure DevOps to automatically sync your repositories. Revcode AI will analyze your codebase structure and prepare it for review.',
+      description: 'Sign in with GitHub or GitLab to automatically sync your repositories. Revcode AI will analyze your codebase structure and prepare it for review.',
     },
     {
       icon: Code2, color: '#8b5cf6',
@@ -15,8 +15,8 @@ export default function HowToUse() {
     },
     {
       icon: Shield, color: '#10b981',
-      title: '3. Cloud Security Scanning',
-      description: 'Run automated cloud security scans on your repositories. Detect IAM misconfigurations, exposed secrets, open ports, unencrypted storage, and compliance violations.',
+      title: '3. Security Scanning',
+      description: 'Run automated security scans on your repositories. Detect IaC misconfigurations, exposed secrets, open ports, unencrypted storage, and compliance violations.',
     },
     {
       icon: Zap, color: '#f59e0b',
