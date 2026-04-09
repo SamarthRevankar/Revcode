@@ -431,7 +431,12 @@ ${code}
     }
   }
 
-  // Layer 2: Deep Security Scan (DistilBERT Guardian)
+  // Fallback: local heuristic analysis if Gemini failed
+  if (!result) {
+    result = localAnalyze(code);
+  }
+
+  // Layer 2: Deep Security Scan (CodeBERT-Devign Precision Engine)
   if (mlServiceUrl) {
     try {
       const secRes = await axios.post(`${mlServiceUrl}/analyze`, { code, filename });
@@ -450,11 +455,6 @@ ${code}
     } catch (e) {
       console.warn('ML Security Scan failed:', e.message);
     }
-  }
-
-  // Fallback: local heuristic analysis
-  if (!result) {
-    result = localAnalyze(code);
   }
 
   // Persist review

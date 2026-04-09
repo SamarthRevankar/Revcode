@@ -21,8 +21,9 @@ export default function Review() {
     getReviews().then(d => setHistory(d.reviews || [])).catch(() => {});
   }, []);
 
-  const handleReview = async () => {
-    if (!code.trim()) { setError('Please paste some code to review.'); return; }
+  const handleReview = async (overrideCode?: any) => {
+    const codeToScan = typeof overrideCode === 'string' ? overrideCode : code;
+    if (!codeToScan.trim()) { setError('Please paste some code to review.'); return; }
     setError('');
     setLoading(true);
     setResult(null);
@@ -37,7 +38,7 @@ export default function Review() {
       await new Promise(r => setTimeout(r, 1000));
       setScanningStep(3);
       
-      const data = await submitReview(code, filename);
+      const data = await submitReview(codeToScan, filename);
       
       // Step 3: Guardrail Validation
       await new Promise(r => setTimeout(r, 600));
@@ -82,6 +83,9 @@ export default function Review() {
     setCode(finalCode);
     setApplied(true);
     setFixResult(null);
+    
+    // Auto-rescan to reflect new health score
+    await handleReview(finalCode);
   };
 
   const handleTrain = async () => {
