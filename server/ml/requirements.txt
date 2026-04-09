@@ -2,6 +2,7 @@ torch
 transformers
 fastapi
 uvicorn
+gunicorn
 pydantic
 pandas
 accelerate
